@@ -7,19 +7,13 @@ int main()
     MiniELoop t;
     t.start();
 
-    // Timer fires every second, starting five seconds from now
-    t.createEvent( 1000,
-             [](TaskData) {
-                 std::cout << "Timer fired 0" << std::endl;
-                 return true;
-             }, nullptr);
-    // Timer fires every second, starting now
+    // Cyclic timer fires every 500ms, starting now
     t.createEvent( 500,
              [](TaskData) {
                  std::cout << "Timer fired 1" << std::endl;
                  return true;
              }, nullptr);
-    // Timer fires every 100ms, starting now
+    // Oneshot timer fires every 100ms, starting after 10s
     t.createEvent(100,
              [](TaskData) {
                  std::cout << "Timer fired 2" << std::endl;
