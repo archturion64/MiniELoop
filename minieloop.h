@@ -11,10 +11,11 @@
 #include <atomic>
 #include <functional>
 #include <chrono>
+#include <memory>
 
 using TaskHandle = uint64_t;
 using TaskDuration = std::chrono::milliseconds;
-using TaskData = void*;
+using TaskData = std::shared_ptr<void>;
 using TaskWork = std::function<bool(TaskData)>;
 using MonoClock = std::chrono::steady_clock;
 using Timestamp = std::chrono::time_point<MonoClock>;
@@ -94,3 +95,4 @@ private:
 
 
 #endif // MINIELOOP_H
+
