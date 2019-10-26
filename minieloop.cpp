@@ -1,38 +1,48 @@
 #include "minieloop.h"
 
+namespace minieloop {
+
+/**
+ * @brief timeoutMs arbitrary op timeout value
+ */
+constexpr static const std::chrono::milliseconds TIMEOUT_MS{1000};
+
 void MiniELoop::start() noexcept
 {
     stop();
-    mShouldStop.store(false);
-    mThread = std::thread(std::bind(&MiniELoop::startThread, this));
+    shouldStop = false;
+    thread = std::thread(std::bind(&MiniELoop::runThread, this));
 }
 
 void MiniELoop::stop() noexcept
 {
-    mShouldStop.store(true);
-    ScopeLock lock(mtx);
-    mWakeUp.notify_all();
+    shouldStop = true;
+    ScopeLock lock(mutex);
+    condition.notify_all();
     lock.unlock();
-    if(mThread.joinable())
+    if(thread.joinable())
     {
-        mThread.join();
+        thread.join();
     }
 }
 
-TaskHandle MiniELoop::createEvent(const TaskPeriod& period, const TaskWork &work, const TaskData data, const TaskPeriod& initialDelay) noexcept
+TaskHandle MiniELoop::createEvent(const TaskPeriod& period,
+                                  const TaskWork& work,
+                                  const TaskData& data,
+                                  const TaskPeriod& initialDelay) noexcept
 {
     TaskHandle retVal(0);
-    SimpleTask newTask = SimpleTask(mNextTimerHandle, MonoClock::now()+TaskDuration{initialDelay}, TaskDuration{period}, work, data);
-
+    ScopeLock lock(mutex);
+    auto iter = pool.emplace(currentHandle,
+                             Task{currentHandle,
+                                  MonoClock::now()+TaskDuration{initialDelay},
+                                  TaskDuration{period},
+                                  work,
+                                  data});
+    if (iter.second)
     {
-        ScopeLock lock(mtx);
-        auto iter = mActiveTasks.emplace(newTask.mHandle, std::move(newTask));
-
-        if (iter.second)
-        {
-            mQueue.insert(iter.first->second);
-            retVal = mNextTimerHandle++;
-        }
+        queue.insert(iter.first->second);
+        retVal = currentHandle++;
     }
 
     return retVal;
@@ -40,58 +50,64 @@ TaskHandle MiniELoop::createEvent(const TaskPeriod& period, const TaskWork &work
 
 bool MiniELoop::destroyEvent(const TaskHandle& handle) noexcept
 {
-    bool retVal(false);
-
-    ScopeLock lock(mtx);
+    ScopeLock lock(mutex);
+    // remove if scheduled to run
     try {
-        mQueue.erase(std::ref(mActiveTasks.at(handle)));
+        queue.erase(std::ref(pool.at(handle)));
     }  catch (const std::out_of_range& oor) {
         (void)oor;
     }
 
-    mActiveTasks.erase(handle);
+    // remove stored data about it
+    bool retVal = pool.erase(handle);
 
-    mWakeUp.notify_all();
+    condition.notify_all();
 
     return retVal;
 }
 
 bool MiniELoop::eventExists(const TaskHandle& handle) const noexcept
 {
-    ScopeLock lock(mtx);
-    return mActiveTasks.count(handle);
+    ScopeLock lock(mutex);
+    return pool.count(handle);
 }
 
 
-void MiniELoop::startThread()
+void MiniELoop::runThread() noexcept
 {
-    while (!mShouldStop.load())
+    while (1)
     {
-        ScopeLock lock(mtx);
-        if (mQueue.empty())
+        ScopeLock lock(mutex);
+        if(shouldStop)
         {
-            mWakeUp.wait_for(lock, std::chrono::seconds(1));
+            break;
+        } else if (queue.empty())
+        {
+            condition.wait_for(lock, TIMEOUT_MS);
         }else{
-            const auto entry = mQueue.begin();
-            SimpleTask& instance = entry->get();
+            const auto entry = queue.begin();
+            Task& instance = entry->get();
 
-            // trigger now or wait until time to trigger
-            if (MonoClock::now() < instance.mTimestamp)
+            const auto waitSpan = std::chrono::duration_cast<std::chrono::milliseconds>
+                    (instance.mTimestamp - MonoClock::now());
+
+            if (waitSpan.count() > 0)
             {
-                mWakeUp.wait_until(lock, instance.mTimestamp);
+                condition.wait_for(lock, std::min(waitSpan, TIMEOUT_MS));
             } else {
-                mQueue.erase(entry);
+                queue.erase(entry);
                 if (instance.mWork(instance.mData)) // trigger registered function
                 {
                     instance.mTimestamp = instance.mTimestamp + instance.mDuration;
-                    mQueue.insert(instance);
+                    queue.insert(instance);
                 } else {
-                    lock.unlock();
+                    lock.unlock();  // destroyEvent() uses same lock
                     destroyEvent(instance.mHandle);
                     lock.lock();
                 }
             }
         }
     }
-    return;
 }
+
+} // namespace minieloop

@@ -19,6 +19,7 @@ struct DataForTask
 
 };
 
+using namespace minieloop;
 int main()
 {
     MiniELoop t;
