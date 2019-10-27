@@ -12,6 +12,7 @@
 #include <functional>
 #include <chrono>
 #include <memory>
+#include <utility>
 
 namespace minieloop {
 
@@ -73,12 +74,12 @@ public:
     /**
      * @brief start - run the loop, timers trigger only on a running event loop
      */
-    void start(void) noexcept;
+    void start() noexcept;
 
     /**
      * @brief stop - cancle timer execution, will not clear pending tasks
      */
-    void stop(void) noexcept;
+    void stop() noexcept;
 
     /**
      * @brief createEvent creates a timer
@@ -136,7 +137,7 @@ private:
     std::condition_variable condition;
     std::thread thread;
 
-    void runThread(void) noexcept;
+    void runThread() noexcept;
 };
 
 } // namespace minieloop

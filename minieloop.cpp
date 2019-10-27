@@ -69,19 +69,21 @@ bool MiniELoop::destroyEvent(const TaskHandle& handle) noexcept
 bool MiniELoop::eventExists(const TaskHandle& handle) const noexcept
 {
     ScopeLock lock(mutex);
-    return pool.count(handle);
+    return pool.count(handle) != 0;
 }
 
 
 void MiniELoop::runThread() noexcept
 {
-    while (1)
+    while (true)
     {
         ScopeLock lock(mutex);
         if(shouldStop)
         {
             break;
-        } else if (queue.empty())
+        }
+
+        if (queue.empty())
         {
             condition.wait_for(lock, TIMEOUT_MS);
         }else{
